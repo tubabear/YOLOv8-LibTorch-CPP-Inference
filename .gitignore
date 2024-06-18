@@ -1,0 +1,8 @@
+# 忽略 .vscode 目錄
+.vscode/
+
+# 忽略 build 目錄
+build/
+
+# 忽略 weights 目錄
+weights/
