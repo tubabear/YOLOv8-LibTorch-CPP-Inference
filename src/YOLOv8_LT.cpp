@@ -223,13 +223,15 @@ cv::Scalar getRandomColor() {
     return cv::Scalar(dis(gen), dis(gen), dis(gen));
 } // End of getRandomColor
 
-std::pair<cv::Mat, std::vector<std::vector<cv::Point>>> YOLOv8_LT::drawDetected(
+void YOLOv8_LT::drawDetected(
     const cv::Mat& image,
     const torch::Tensor& keep,
-    const torch::Tensor& mask_tensor
+    const torch::Tensor& mask_tensor,
+    cv::Mat& result_image,
+    std::vector<std::vector<cv::Point>>& contours
 ) {
-    cv::Mat result_image = image.clone();
-    std::vector<std::vector<cv::Point>> contours;
+
+    result_image = image.clone();
 
     // Number of detected results
     int num_results = keep.size(0);
@@ -327,8 +329,6 @@ std::pair<cv::Mat, std::vector<std::vector<cv::Point>>> YOLOv8_LT::drawDetected(
             ft2->putText(result_image, label, cv::Point(x1, y1 + offsetY), 40, cv::Scalar(255, 255, 255), -1, cv::LINE_AA, true);
         }
     }
-
-    return {result_image, contours};
 } // End of drawDetected
 
 YOLOv8_LT::YOLOv8_LT(
@@ -360,25 +360,25 @@ YOLOv8_LT::YOLOv8_LT(
     // Initialize FreeType2 font
     ft2 = cv::freetype::createFreeType2();
     ft2->loadFontData(font_path, 0);
-}
+} // End of YOLOv8_LT::YOLOv8_LT
 
-torch::Tensor YOLOv8_LT::preprocess(const cv::Mat& image) {
+void YOLOv8_LT::preprocess(const cv::Mat& image, torch::Tensor& image_tensor) {
     cv::Mat input_image;
     letterbox(image, input_image, {input_width, input_height});
 
-    torch::Tensor image_tensor = torch::from_blob(input_image.data, {input_image.rows, input_image.cols, 3}, torch::kByte).to(device);
+    image_tensor = torch::from_blob(input_image.data, {input_image.rows, input_image.cols, 3}, torch::kByte).to(device);
     image_tensor = image_tensor.toType(torch::kFloat32).div(255);
     image_tensor = image_tensor.permute({2, 0, 1});
     image_tensor = image_tensor.unsqueeze(0);
+} // End of YOLOv8_LT::preprocess
 
-    return image_tensor;
-}
 
-std::pair<cv::Mat, std::vector<detectionResult>> YOLOv8_LT::postprocess(
+void YOLOv8_LT::postprocess(
     torch::jit::IValue& output,
-    const cv::Mat& image
+    const cv::Mat& image,
+    cv::Mat& result_image,
+    std::vector<detectionResult>& results
 ) {
-
     torch::Tensor result_tensor;
     torch::Tensor mask_tensor;
 
@@ -389,14 +389,12 @@ std::pair<cv::Mat, std::vector<detectionResult>> YOLOv8_LT::postprocess(
                 mask_tensor = outputs[1].toTensor();
             } else {
                 std::cerr << "First element is not a tensor." << std::endl;
-                return {cv::Mat(), {}};
+                return;
             }
         } else {
             std::cerr << "Output is not a tuple." << std::endl;
-            return {cv::Mat(), {}};
+            return;
     }
-
-    std::vector<detectionResult> results;
 
     // NMS
     auto keep = non_max_suppression(result_tensor, confThreshold, iouThreshold)[0];
@@ -406,8 +404,9 @@ std::pair<cv::Mat, std::vector<detectionResult>> YOLOv8_LT::postprocess(
     std::vector<int> shape =  {image.rows, image.cols};
     keep = clip_boxes(keep, shape);
 
+    std::vector<std::vector<cv::Point>> contours;
     // Draw masks and bbox
-    auto [result_image, contours] = drawDetected(image, keep, mask_tensor);
+    drawDetected(image, keep, mask_tensor, result_image, contours);
 
     // Record the results
     for (int i = 0; i < keep.size(0); i++) {
@@ -425,25 +424,27 @@ std::pair<cv::Mat, std::vector<detectionResult>> YOLOv8_LT::postprocess(
         result.contours = contours[i];
         results.push_back(result);
     }
-    return {result_image,results};
-}
+} // End of YOLOv8_LT::postprocess
 
 std::pair<cv::Mat, std::vector<detectionResult>> YOLOv8_LT::infer(
     const cv::Mat& image,
     bool show_bbox, bool show_label, bool show_mask) {
     try {
-        torch::Tensor input_tensor = preprocess(image);
+        torch::Tensor input_tensor;
+        preprocess(image, input_tensor);
 
         std::vector<torch::jit::IValue> inputs;
         inputs.push_back(input_tensor);
 
         auto output = model.forward(inputs);
 
-        auto [result_image, results] = postprocess(output, image);
+        cv::Mat result_image;
+        std::vector<detectionResult> results;
+        postprocess(output, image, result_image, results);
 
         return {result_image, results};
     } catch (const c10::Error& e) {
         std::cerr << e.msg() << std::endl;
         return {cv::Mat(), {}};
-    }
+    } // End of try-catch
 }
