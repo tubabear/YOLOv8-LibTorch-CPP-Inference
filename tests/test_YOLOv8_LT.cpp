@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 #include "YOLOv8_LT.h"
 
+using namespace yolov8;
+
 class YOLOv8_LT_Test : public ::testing::Test {
 protected:
     std::string model_path;

@@ -12,6 +12,8 @@
 using torch::indexing::Slice;
 using torch::indexing::None;
 
+using namespace yolov8;
+
 namespace fs = std::filesystem;
 
 int main() {

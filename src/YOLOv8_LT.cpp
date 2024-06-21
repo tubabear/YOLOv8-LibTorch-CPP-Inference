@@ -11,6 +11,8 @@
 using torch::indexing::Slice;
 using torch::indexing::None;
 
+using namespace yolov8;
+
 namespace fs = std::filesystem;
 
 float generate_scale(const cv::Mat& image, const std::vector<int>& target_size) {
@@ -427,8 +429,7 @@ void YOLOv8_LT::postprocess(
 } // End of YOLOv8_LT::postprocess
 
 std::pair<cv::Mat, std::vector<detectionResult>> YOLOv8_LT::infer(
-    const cv::Mat& image,
-    bool show_bbox, bool show_label, bool show_mask) {
+    const cv::Mat& image) {
     try {
         torch::Tensor input_tensor;
         preprocess(image, input_tensor);
