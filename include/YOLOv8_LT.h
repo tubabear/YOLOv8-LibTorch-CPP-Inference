@@ -3,6 +3,7 @@
 
 #include <opencv2/opencv.hpp>
 #include <torch/script.h> // LibTorch
+#include <opencv2/freetype.hpp>
 #include <vector>
 #include <string>
 
@@ -21,22 +22,51 @@ struct detectionResult
     std::vector<cv::Point> contours; ///< Contours of the detected object.
 };
 
-/**
- * @brief Perform object detection using the YOLOv8 model.
- * 
- * This function takes an input image and a YOLOv8 model to perform object detection.
- * It returns a pair consisting of the processed image and a vector of detection results.
- * 
- * @param image The input image on which object detection is performed.
- * @param model The YOLOv8 model loaded using LibTorch.
- * @param confThreshold Confidence threshold for detections. Default is 0.2.
- * @param iouThreshold Intersection over Union (IoU) threshold for non-maximum suppression. Default is 0.3.
- * @param show_bbox Boolean flag to indicate whether to display bounding boxes. Default is true.
- * @param show_label Boolean flag to indicate whether to display labels. Default is true.
- * @param show_mask Boolean flag to indicate whether to display masks. Default is true.
- * @return A pair containing the processed image and a vector of detection results.
- */
+class YOLOv8_LT{
+    public:
+        YOLOv8_LT(
+            const std::string& model_path,
+            const std::string font_path,
+            std::vector<std::string> class_Ch,
+            float confThreshold = 0.2,
+            float iouThreshold = 0.3,
+            int input_width = 1280,
+            int input_height = 1280,
+            bool show_bbox = true,
+            bool show_label = true,
+            bool show_mask = true
+        );
 
-std::pair<cv::Mat, std::vector<detectionResult>> YOLOv8_LT(cv::Mat& image, torch::jit::script::Module& model, float confThreshold=0.2, float iouThreshold=0.3, bool show_bbox=true, bool show_label=true, bool show_mask=true);
+        std::pair<cv::Mat, std::vector<detectionResult>> infer(const cv::Mat& image, bool show_bbox = true, bool show_label = true, bool show_mask = true);
+    
+    private:
+        torch::jit::script::Module model;
+        std::string font_path;
+        std::vector<std::string> class_Ch;
+        float confThreshold;
+        float iouThreshold;
+        int input_width;
+        int input_height;
+        bool show_bbox;
+        bool show_label;
+        bool show_mask;
+
+        torch::Device device;
+        cv::Ptr<cv::freetype::FreeType2> ft2;
+
+        torch::Tensor preprocess(const cv::Mat& image);
+
+        std::pair<cv::Mat, std::vector<detectionResult>> postprocess(
+            torch::jit::IValue& output,
+            const cv::Mat& image
+        );
+
+        std::pair<cv::Mat, std::vector<std::vector<cv::Point>>> drawDetected(
+            const cv::Mat& image,
+            const torch::Tensor& keep,
+            const torch::Tensor& mask_tensor
+        );
+
+    };
 
 #endif // YOLOV8_LT_H

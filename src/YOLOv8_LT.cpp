@@ -1,22 +1,19 @@
+#include "YOLOv8_LT.h"
 #include <iostream>
-
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/opencv.hpp>
 #include <torch/torch.h>
-
 #include <opencv2/freetype.hpp>
 #include <random>
-
-#include "YOLOv8_LT.h"
 
 using torch::indexing::Slice;
 using torch::indexing::None;
 
 namespace fs = std::filesystem;
 
-float generate_scale(cv::Mat& image, const std::vector<int>& target_size) {
+float generate_scale(const cv::Mat& image, const std::vector<int>& target_size) {
     int origin_w = image.cols;
     int origin_h = image.rows;
 
@@ -29,7 +26,7 @@ float generate_scale(cv::Mat& image, const std::vector<int>& target_size) {
     return resize_scale;
 } // End of generate_scale
 
-float letterbox(cv::Mat &input_image, cv::Mat &output_image, const std::vector<int> &target_size) {
+float letterbox(const cv::Mat &input_image, cv::Mat &output_image, const std::vector<int> &target_size) {
     // Check if input image already matches target size
     if (input_image.cols == target_size[1] && input_image.rows == target_size[0]) {
         if (input_image.data == output_image.data) {
@@ -226,20 +223,17 @@ cv::Scalar getRandomColor() {
     return cv::Scalar(dis(gen), dis(gen), dis(gen));
 } // End of getRandomColor
 
-std::pair<cv::Mat, std::vector<std::vector<cv::Point>>> drawDetected(const cv::Mat& image, const torch::Tensor& keep, const torch::Tensor& mask_tensor, bool show_bbox, bool show_label, bool show_mask) {
+std::pair<cv::Mat, std::vector<std::vector<cv::Point>>> YOLOv8_LT::drawDetected(
+    const cv::Mat& image,
+    const torch::Tensor& keep,
+    const torch::Tensor& mask_tensor
+) {
     cv::Mat result_image = image.clone();
     std::vector<std::vector<cv::Point>> contours;
 
     // Number of detected results
     int num_results = keep.size(0);
 
-    // Class labels in Chinese
-    std::vector<std::string> clsCh {"鱷魚", "人手孔", "裂縫", "排水孔", "伸縮縫", "補綻", "坑洞"};
-
-    // Initialize FreeType2 font
-    cv::Ptr<cv::freetype::FreeType2> ft2 = cv::freetype::createFreeType2();
-    ft2->loadFontData("../../resource/uming.ttc", 0); 
-    
     // Iterate over each detected results
     for (int i = 0; i < num_results; ++i) {
         // Extract bbox and mask weights
@@ -324,81 +318,132 @@ std::pair<cv::Mat, std::vector<std::vector<cv::Point>>> drawDetected(const cv::M
 
         if (show_label){
             // Draw text
-            std::string label = clsCh[class_id];
+            std::string label = class_Ch[class_id];
             int baseLine = 0;
             int offsetY = -5;
-            cv::Size labelSize = ft2->getTextSize(label, 20, -1, &baseLine);
+            cv::Size labelSize = ft2->getTextSize(label, 40, -1, &baseLine);
             y1 = std::max(y1, static_cast<float>(labelSize.height));
             cv::rectangle(result_image, cv::Point(x1, y1 - labelSize.height + offsetY),cv::Point(x1 + labelSize.width, y1 + baseLine + offsetY),random_color, cv::FILLED);
-            ft2->putText(image, label, cv::Point(x1, y1 + offsetY), 20, cv::Scalar(255, 255, 255), -1, cv::LINE_AA, true);
+            ft2->putText(result_image, label, cv::Point(x1, y1 + offsetY), 40, cv::Scalar(255, 255, 255), -1, cv::LINE_AA, true);
         }
     }
 
     return {result_image, contours};
 } // End of drawDetected
 
-std::pair<cv::Mat, std::vector<detectionResult>> YOLOv8_LT(cv::Mat& image, torch::jit::script::Module& model, float confThreshold, float iouThreshold, bool show_bbox, bool show_label, bool show_mask){
-    std::vector<detectionResult> results;
-    torch::Device device(torch::cuda::is_available() ? torch::kCUDA :torch::kCPU);
-    try {
-        cv::Mat input_image;
-        letterbox(image, input_image, {1280, 1280});
+YOLOv8_LT::YOLOv8_LT(
+    const std::string& model_path,
+    const std::string font_path,
+    std::vector<std::string> class_Ch,
+    float confThreshold,
+    float iouThreshold,
+    int input_width,
+    int input_height,
+    bool show_bbox,
+    bool show_label,
+    bool show_mask
+):  confThreshold(confThreshold),
+    font_path(font_path),
+    class_Ch(class_Ch),
+    iouThreshold(iouThreshold),
+    input_width(input_width),
+    input_height(input_height),
+    show_bbox(show_bbox),
+    show_label(show_label),
+    show_mask(show_mask),
+    device(torch::cuda::is_available() ? torch::kCUDA : torch::kCPU) {
+    
+    model = torch::jit::load(model_path);
+    model.to(device);
+    model.eval();
 
-        torch::Tensor image_tensor = torch::from_blob(input_image.data, {input_image.rows, input_image.cols, 3}, torch::kByte).to(device);
-        image_tensor = image_tensor.toType(torch::kFloat32).div(255);
-        image_tensor = image_tensor.permute({2, 0, 1});
-        image_tensor = image_tensor.unsqueeze(0);
-        std::vector<torch::jit::IValue> inputs {image_tensor};
-            
-        //Inference
-        torch::IValue output = model.forward(inputs);
-        torch::Tensor result_tensor;
-        torch::Tensor mask_tensor;
-            
-        if (output.isTuple()) {
+    // Initialize FreeType2 font
+    ft2 = cv::freetype::createFreeType2();
+    ft2->loadFontData(font_path, 0);
+}
+
+torch::Tensor YOLOv8_LT::preprocess(const cv::Mat& image) {
+    cv::Mat input_image;
+    letterbox(image, input_image, {input_width, input_height});
+
+    torch::Tensor image_tensor = torch::from_blob(input_image.data, {input_image.rows, input_image.cols, 3}, torch::kByte).to(device);
+    image_tensor = image_tensor.toType(torch::kFloat32).div(255);
+    image_tensor = image_tensor.permute({2, 0, 1});
+    image_tensor = image_tensor.unsqueeze(0);
+
+    return image_tensor;
+}
+
+std::pair<cv::Mat, std::vector<detectionResult>> YOLOv8_LT::postprocess(
+    torch::jit::IValue& output,
+    const cv::Mat& image
+) {
+
+    torch::Tensor result_tensor;
+    torch::Tensor mask_tensor;
+
+    if (output.isTuple()) {
             auto outputs = output.toTuple()->elements();
             if (!outputs.empty() && outputs[0].isTensor()) {
                 result_tensor = outputs[0].toTensor();
                 mask_tensor = outputs[1].toTensor();
             } else {
                 std::cerr << "First element is not a tensor." << std::endl;
-                return {cv::Mat(), results};
+                return {cv::Mat(), {}};
             }
         } else {
             std::cerr << "Output is not a tuple." << std::endl;
-            return {cv::Mat(), results};
-        }
-
-        // NMS
-        auto keep = non_max_suppression(result_tensor, confThreshold, iouThreshold)[0];
-        auto boxes = keep.index({Slice(), Slice(None, 4)});
-        keep.index_put_({Slice(), Slice(None, 4)}, scale_boxes({input_image.rows, input_image.cols}, boxes, {image.rows, image.cols}));
-        
-        std::vector<int> shape =  {image.rows, image.cols};
-        keep = clip_boxes(keep, shape);
-
-        // Draw masks and bbox
-        auto [result_image, contours] = drawDetected(image, keep, mask_tensor, show_bbox, show_label, show_mask);
-
-        // Record the results
-        for (int i = 0; i < keep.size(0); i++) {
-            int x1 = keep[i][0].item().toFloat();
-            int y1 = keep[i][1].item().toFloat();
-            int x2 = keep[i][2].item().toFloat();
-            int y2 = keep[i][3].item().toFloat();
-            float conf = keep[i][4].item().toFloat();
-            int cls = keep[i][5].item().toInt();
-            
-            detectionResult result;
-            result.bbox = cv::Rect(cv::Point(x1, y1), cv::Point(x2, y2));
-            result.classID = cls;
-            result.conf = conf;
-            result.contours = contours[i];
-            results.push_back(result);
-        }
-        return {result_image,results};
-    } catch (const c10::Error& e) {
-        std::cout << e.msg() << std::endl;
+            return {cv::Mat(), {}};
     }
-    return {cv::Mat(), results};
-} // End of YOLOv8_LT
+
+    std::vector<detectionResult> results;
+
+    // NMS
+    auto keep = non_max_suppression(result_tensor, confThreshold, iouThreshold)[0];
+    auto boxes = keep.index({Slice(), Slice(None, 4)});
+    keep.index_put_({Slice(), Slice(None, 4)}, scale_boxes({input_height, input_width}, boxes, {image.rows, image.cols}));
+    
+    std::vector<int> shape =  {image.rows, image.cols};
+    keep = clip_boxes(keep, shape);
+
+    // Draw masks and bbox
+    auto [result_image, contours] = drawDetected(image, keep, mask_tensor);
+
+    // Record the results
+    for (int i = 0; i < keep.size(0); i++) {
+        int x1 = keep[i][0].item().toFloat();
+        int y1 = keep[i][1].item().toFloat();
+        int x2 = keep[i][2].item().toFloat();
+        int y2 = keep[i][3].item().toFloat();
+        float conf = keep[i][4].item().toFloat();
+        int cls = keep[i][5].item().toInt();
+        
+        detectionResult result;
+        result.bbox = cv::Rect(cv::Point(x1, y1), cv::Point(x2, y2));
+        result.classID = cls;
+        result.conf = conf;
+        result.contours = contours[i];
+        results.push_back(result);
+    }
+    return {result_image,results};
+}
+
+std::pair<cv::Mat, std::vector<detectionResult>> YOLOv8_LT::infer(
+    const cv::Mat& image,
+    bool show_bbox, bool show_label, bool show_mask) {
+    try {
+        torch::Tensor input_tensor = preprocess(image);
+
+        std::vector<torch::jit::IValue> inputs;
+        inputs.push_back(input_tensor);
+
+        auto output = model.forward(inputs);
+
+        auto [result_image, results] = postprocess(output, image);
+
+        return {result_image, results};
+    } catch (const c10::Error& e) {
+        std::cerr << e.msg() << std::endl;
+        return {cv::Mat(), {}};
+    }
+}

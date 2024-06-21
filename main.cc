@@ -6,8 +6,6 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/opencv.hpp>
-#include <torch/torch.h>
-#include <torch/script.h>
 
 #include "YOLOv8_LT.h"
 
@@ -17,22 +15,38 @@ using torch::indexing::None;
 namespace fs = std::filesystem;
 
 int main() {
-    // Device
-    torch::Device device(torch::cuda::is_available() ? torch::kCUDA :torch::kCPU);
-
     std::string model_path = "/home/jh/YOLOv8-LibTorch-CPP-Inference/weights/yolov8m_seg_1280_b4_best.torchscript";
+    float confThreshold = 0.2;
+    float iouThreshold = 0.3;
+    int input_width = 1280;
+    int input_height = 1280;
+    bool show_bbox = true;
+    bool show_label = true;
+    bool show_mask = true;
+    std::string font_path = "/home/jh/YOLOv8-LibTorch-CPP-Inference/resource/uming.ttc";
+    std::vector<std::string> class_ch = {"鱷魚", "人手孔", "裂縫", "排水孔", "伸縮縫", "補綻", "坑洞"};
+
+    // load model
+    YOLOv8_LT detector(
+        model_path,
+        font_path,
+        class_ch,
+        confThreshold,
+        iouThreshold,
+        input_width,
+        input_height,
+        show_bbox,
+        show_label,
+        show_mask
+    );
+
     std::string image_dir = "/home/jh/Pictures/test/";
+    std::string output_dir = "/home/jh/Pictures/test_/";
+    if (!fs::exists(output_dir)) {
+        fs::create_directories(output_dir);
+    }
     
-    // Class labels in Chinese
-    std::vector<std::string> clsCh {"鱷魚", "人手孔", "裂縫", "排水孔", "伸縮縫", "補綻", "坑洞"};
-
-    torch::jit::script::Module model;
     try {
-        // Load the model
-        model = torch::jit::load(model_path);
-        model.eval();
-        model.to(device, torch::kFloat32);
-
         // Record start time 
         auto start = std::chrono::high_resolution_clock::now();
         
@@ -47,11 +61,10 @@ int main() {
             std::cout << "Read image: " << entry.path() << std::endl;
 
             // Inference
-            auto [result_image, detResults] = YOLOv8_LT(image, model);
+            auto [result_image, detResults] = detector.infer(image);
 
             // Save result image
-            cv::imwrite("./test/" + entry.path().filename().string(), result_image);
-
+            cv::imwrite(output_dir + entry.path().filename().string(), result_image);
 
             // Show the results
             for (const auto& result : detResults) {
@@ -61,7 +74,7 @@ int main() {
                 int y2 = result.bbox.y + result.bbox.height;
                 float conf = result.conf;
                 int cls = result.classID;
-                std::cout << "Rect: [" << x1 << "," << y1 << "," << x2 << "," << y2 << "]  Conf: " << conf << "  Class: " << clsCh[cls] << std::endl;
+                std::cout << "Rect: [" << x1 << "," << y1 << "," << x2 << "," << y2 << "]  Conf: " << conf << "  Class: " << class_ch[cls] << std::endl;
             }
 
             // record end time
