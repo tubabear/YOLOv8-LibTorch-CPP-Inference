@@ -45,6 +45,32 @@ target_link_libraries(yolov8_libtorch_inference
 
 set_property(TARGET yolov8_libtorch_inference PROPERTY CXX_STANDARD 17)
 
+
+# -------------- Google Test --------------
+enable_testing()
+find_package(GTest REQUIRED)
+
+set(GTEST_INCLUDE_DIRS /usr/local/include)
+set(GTEST_LIBRARIES /usr/local/lib/libgtest.a /usr/local/lib/libgtest_main.a)
+
+include_directories(${GTEST_INCLUDE_DIRS})
+message(STATUS "Google Test found: ${GTEST_INCLUDE_DIRS}")
+
+
+add_executable(runTests 
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_YOLOv8_LT.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/YOLOv8_LT.cpp"
+)
+target_link_libraries(runTests 
+    ${TORCH_LIBRARIES}
+    ${OpenCV_LIBS}
+    ${GTEST_LIBRARIES}
+    pthread
+)
+
+add_test(NAME runTests COMMAND runTests)
+
+
 # The following code block is suggested to be used on Windows.
 # According to https://github.com/pytorch/pytorch/issues/25457,
 # the DLLs need to be copied to avoid memory errors.
