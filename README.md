@@ -13,3 +13,10 @@
 - 找到 `pytorch` 產生 `.torchscript` 的程式碼，把模型跟圖片轉移到 "cuda" 後再輸出就可以使用 "cuda" 版本。
   ```python
   ts = torch.jit.trace(self.model.to("cuda"), self.im.to("cuda"), strict=False)
+
+## 使用函式庫說明
+此專案主要依賴以下函式庫：
+
+- OpenCV: 用於影像處理和顯示。
+- libtorch: PyTorch 的 C++ 版本，用於深度學習模型的推論。
+- Google Test: 用於單元測試。
