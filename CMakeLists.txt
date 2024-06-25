@@ -6,6 +6,9 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Export compile commands for use with tools like clang-tidy
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # -------------- OpenCV --------------
 find_package(OpenCV REQUIRED)
 
@@ -27,15 +30,20 @@ message(STATUS "Torch library status:")
 message(STATUS "    libraries: ${TORCH_LIBRARIES}")
 message(STATUS "    include path: ${TORCH_INCLUDE_DIRS}")
 
-include_directories(${TORCH_INCLUDE_DIRS})
-
 # -------------- YOLOv8_LT --------------
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 # Add executable and link libraries
 add_executable(yolov8_libtorch_inference 
-    "${CMAKE_CURRENT_SOURCE_DIR}/main.cc"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/YOLOv8_LT.cpp"
+"${CMAKE_CURRENT_SOURCE_DIR}/main.cc"
+"${CMAKE_CURRENT_SOURCE_DIR}/src/YOLOv8_LT.cpp"
+)
+
+target_include_directories(yolov8_libtorch_inference PUBLIC
+    ${TORCH_INCLUDE_DIRS}
+)
+
+target_include_directories(yolov8_libtorch_inference PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
 target_link_libraries(yolov8_libtorch_inference 
@@ -53,14 +61,19 @@ find_package(GTest REQUIRED)
 set(GTEST_INCLUDE_DIRS /usr/local/include)
 set(GTEST_LIBRARIES /usr/local/lib/libgtest.a /usr/local/lib/libgtest_main.a)
 
-include_directories(${GTEST_INCLUDE_DIRS})
 message(STATUS "Google Test found: ${GTEST_INCLUDE_DIRS}")
-
 
 add_executable(runTests 
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_YOLOv8_LT.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/YOLOv8_LT.cpp"
 )
+
+target_include_directories(runTests PUBLIC
+    ${TORCH_INCLUDE_DIRS}
+    ${GTEST_INCLUDE_DIRS}
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
 target_link_libraries(runTests 
     ${TORCH_LIBRARIES}
     ${OpenCV_LIBS}
